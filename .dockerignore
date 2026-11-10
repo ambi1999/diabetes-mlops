@@ -1,0 +1,38 @@
+# =============================================================================
+# .dockerignore - files Docker should NOT send into the build
+# =============================================================================
+# Docker uploads the project folder (the "build context") before building.
+# Excluding large or private files makes builds faster and keeps secrets and
+# data out of images. Same syntax as .gitignore.
+# =============================================================================
+
+# Local Python environment: the image builds its own from uv.lock
+.venv/
+__pycache__/
+*.pyc
+
+# Data, experiment tracking and logs: not needed to serve predictions,
+# and data should never be baked into an image
+data/
+models_quick/
+mlruns/
+mlartifacts/
+mlflow.db
+logs/
+reports/
+
+# The classroom demo isn't part of the API (and its baseline holds model copies)
+demo/
+
+# Development-only files
+.git/
+.github/
+.vscode/
+tests/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+scripts/
+.pre-commit-config.yaml
+render.yaml

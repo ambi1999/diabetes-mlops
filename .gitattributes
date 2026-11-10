@@ -1,0 +1,4 @@
+# .gitattributes - how Git treats files.
+# Use Linux-style (LF) line endings for every text file, on every computer,
+# so Windows, Mac and the Linux CI runners always see identical files.
+* text=auto eol=lf

@@ -1,0 +1,68 @@
+# =============================================================================
+# Production check - .github/workflows/production-check.yml
+# =============================================================================
+# WHAT IT IS
+#   A scheduled smoke test of the DEPLOYED app (Render + Streamlit Cloud),
+#   using the same script CI runs against the containers (scripts/smoke_test.py).
+#
+# WHY
+#   CI proves a release worked when it shipped. This checks it KEEPS working:
+#   a free uptime monitor. If it fails, the run turns red on the Actions tab
+#   and GitHub emails you (default notification settings).
+#
+# SETUP (once): GitHub → your repo → Settings → Secrets and variables →
+#   Actions → "Variables" tab → New repository variable:
+#     DEPLOYED_API_URL = https://<your-service>.onrender.com
+#     DEPLOYED_UI_URL  = https://<your-app>.streamlit.app
+#   These are variables, not secrets: the URLs are public anyway.
+# =============================================================================
+
+name: Production check
+
+on:
+  # cron = "minute hour day-of-month month day-of-week", in UTC time.
+  # "0 21 * * *" = 21:00 UTC every day = 07:00 in Brisbane (no daylight saving).
+  # Note: GitHub pauses scheduled workflows in repositories with no activity
+  # for 60 days; any push re-enables them.
+  schedule:
+    - cron: "0 21 * * *"
+  workflow_dispatch:   # a "Run workflow" button, e.g. right after a release
+
+permissions:
+  contents: read       # least privilege: read-only access to the code
+
+env:
+  UV_VERSION: "0.13.7"
+  UV_NO_SYNC: "1"
+  # Repository variables (see SETUP above); empty if not set yet
+  DEPLOYED_API_URL: ${{ vars.DEPLOYED_API_URL }}
+  DEPLOYED_UI_URL: ${{ vars.DEPLOYED_UI_URL }}
+
+jobs:
+  smoke-test-production:
+    name: Smoke test the deployed app
+    runs-on: ubuntu-latest
+    # Skip (instead of failing) until the URLs have been configured
+    if: vars.DEPLOYED_API_URL != ''
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --locked --no-default-groups --group dev
+
+      # --deployed: wait longer, because free cloud services sleep when idle
+      # and can take a minute or more to wake (timing settings: src/config.py).
+      # A failure means the live app is down or misbehaving.
+      #   Fix: check the Render dashboard's logs; roll back if a release broke it.
+      - name: Smoke-test the deployed app
+        run: |
+          ARGS="--api-url $DEPLOYED_API_URL --deployed"
+          if [ -n "$DEPLOYED_UI_URL" ]; then ARGS="$ARGS --ui-url $DEPLOYED_UI_URL"; fi
+          uv run python -m scripts.smoke_test $ARGS

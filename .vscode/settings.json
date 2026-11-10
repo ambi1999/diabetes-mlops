@@ -1,0 +1,19 @@
+// Project-specific VS Code settings, shared with everyone via Git.
+// They override each person's own User settings for this folder only.
+{
+  // Use the environment uv creates in .venv (Windows path).
+  // On Mac/Linux, VS Code finds .venv automatically anyway.
+  "python.defaultInterpreterPath": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+
+  // Run and discover tests with pytest (Testing panel in the sidebar).
+  // pytest's own settings are in pyproject.toml.
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false,
+
+  // New files use Linux-style (LF) line endings, matching .gitattributes,
+  // so Windows, Mac and the Linux CI runners see identical files.
+  "files.eol": "\n",
+
+  // uv doesn't need conda, so this project uses a plain PowerShell terminal.
+  "terminal.integrated.defaultProfile.windows": "PowerShell"
+}

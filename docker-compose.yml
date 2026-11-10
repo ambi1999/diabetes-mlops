@@ -1,0 +1,44 @@
+# =============================================================================
+# docker-compose.yml - run the whole user-facing system locally
+# =============================================================================
+# Compose starts several containers together and connects them on a private
+# network, mirroring how they run in the cloud:
+#
+#   docker compose up --build     build images and start everything
+#   docker compose down           stop everything
+#
+# Then open the UI at http://localhost:8501 and the API docs at
+# http://localhost:8000/docs
+# =============================================================================
+
+services:
+  api:
+    build: .                      # uses ./Dockerfile
+    ports:
+      - "8000:8000"               # "your machine's port : container's port"
+    volumes:
+      # Volumes link a folder on your machine to a folder in the container:
+      - ./models:/app/models      # a newly promoted model is picked up without rebuilding
+      - ./logs:/app/logs          # prediction logs land on your machine, for monitor.py
+    # CONCEPT - healthcheck: Docker regularly asks the API "are you OK?" and
+    # marks the container healthy or unhealthy (see `docker compose ps`).
+    # It uses Python's built-in urllib, because the slim image has no curl.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s       # how often to check
+      timeout: 5s         # how long one check may take before it counts as failed
+      retries: 5          # failures in a row before the container is "unhealthy"
+      start_period: 10s   # grace period after start-up while the model loads
+
+  ui:
+    build: ./ui                   # uses ./ui/Dockerfile
+    ports:
+      - "8501:8501"
+    environment:
+      # Inside the compose network, containers reach each other by service name,
+      # so the UI calls the API at http://api:8000 (not localhost).
+      - API_URL=http://api:8000
+    depends_on:
+      api:
+        # Start the web app only once the API reports healthy (not merely started)
+        condition: service_healthy

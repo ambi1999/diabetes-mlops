@@ -1,0 +1,37 @@
+# =============================================================================
+# render.yaml - infrastructure as code for the API on Render
+# =============================================================================
+# WHAT IT IS
+#   A Render "Blueprint": a file describing the cloud service we want.
+#   Render reads it and creates or updates the service to match.
+#
+# CONCEPT - infrastructure as code (IaC): the server's setup lives in a file
+#   in Git instead of in someone's memory of dashboard clicks. It's reviewed in
+#   pull requests, versioned, and can recreate the service exactly.
+#
+# HOW TO USE
+#   Render dashboard → New → Blueprint → pick this repository → Apply.
+#   Afterwards, changes to this file (merged into main) update the service.
+#
+# The web app (Streamlit Community Cloud) has no equivalent file; it's set up
+# in its dashboard (see the README).
+# =============================================================================
+
+services:
+  - type: web                     # a service that answers web (HTTP) requests
+    name: diabetes-risk-api       # appears in the dashboard and the default URL
+    runtime: docker               # build from our Dockerfile (not a language preset)
+    plan: free                    # free tier: sleeps after ~15 idle minutes
+    # Render's region closest to Brisbane, for faster responses.
+    # Note: the region can't be changed after the service is created.
+    region: singapore
+    branch: main                  # deploy from main (protected: only tested code)
+    dockerfilePath: ./Dockerfile  # which Dockerfile to build
+    dockerContext: .              # which folder Docker can see while building
+    # Render calls this address to decide whether the service is healthy. A new
+    # release only replaces the old one once this answers successfully, so a
+    # broken release never takes over (a "zero-downtime deploy").
+    healthCheckPath: /health
+    # When to deploy: only after a commit's GitHub checks (our CI) pass.
+    # Other options: "commit" (deploy every commit) or "off" (deploy by hand).
+    autoDeployTrigger: checksPass

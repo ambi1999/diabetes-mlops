@@ -1,0 +1,97 @@
+# =============================================================================
+# .pre-commit-config.yaml - automatic checks that run before every commit
+# =============================================================================
+# WHAT IT IS
+#   pre-commit is a tool that runs a list of checks ("hooks") on the files you
+#   are about to commit. If a check fails, or fixes something, the commit is
+#   stopped so you can look, `git add` the fixes, and commit again.
+#   Analogy: a spell-checker that runs automatically before you send an email.
+#
+# WHY
+#   Problems are cheapest to fix on your own machine, seconds after you make
+#   them. CI runs these SAME hooks on every pull request (the "checks" job), so
+#   passing locally means passing in CI: one definition, used in both places.
+#
+# SETUP (once per clone):   uv run pre-commit install
+# RUN ON EVERYTHING:        uv run pre-commit run --all-files
+# SKIP IN AN EMERGENCY:     git commit --no-verify   (CI will still check!)
+# =============================================================================
+
+# Files no hook should touch: generated files whose exact content matters.
+#   models/        - the trained model and its saved reference data
+#   demo/baseline/ - a copy of the starting model for the demos
+#   demo/fallback/ - saved demo results, written by the demo's "record" mode
+exclude: ^(models/|demo/baseline/|demo/fallback/)
+
+repos:
+  # ---------------------------------------------------------------------------
+  # General file hygiene, from the official pre-commit hooks collection.
+  # rev = the exact version of the hooks (pinned for reproducibility; update
+  # with `uv run pre-commit autoupdate`).
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      # Removes spaces at the ends of lines (invisible, but they create noisy diffs)
+      - id: trailing-whitespace
+        exclude: \.ipynb$          # notebooks are JSON written by Jupyter; leave them alone
+      # Makes every file end with exactly one newline (a long-standing convention)
+      - id: end-of-file-fixer
+        exclude: \.ipynb$|^ui/requirements\.txt$
+      # Checks YAML files (workflows, render.yaml...) are valid, so typos are caught early
+      - id: check-yaml
+      # Checks TOML files (pyproject.toml) are valid
+      - id: check-toml
+      # Stops commits that still contain "<<<<<<<" merge-conflict markers
+      - id: check-merge-conflict
+      # Stops accidentally committing big files (datasets, large models).
+      # maxkb = the size limit in kilobytes. 2000 KB = 2 MB.
+      - id: check-added-large-files
+        args: ["--maxkb=2000"]
+
+  # ---------------------------------------------------------------------------
+  # Local hooks: run tools from THIS project's environment (uv run), so the
+  # version used is exactly the one pinned in uv.lock. One version everywhere.
+  #   language: system  -> run the command as-is (it's already installed via uv)
+  #   types_or          -> which kinds of files the hook receives
+  #   pass_filenames    -> whether the changed files' names are passed to the command
+  # ---------------------------------------------------------------------------
+  - repo: local
+    hooks:
+      # Formatter: rewrites code into one consistent layout (spacing, quotes,
+      # line breaks). Nobody argues about style; the tool decides.
+      - id: ruff-format
+        name: ruff format (consistent code layout)
+        entry: uv run --no-sync ruff format
+        language: system
+        types_or: [python, jupyter]
+
+      # Linter: reads code and reports likely bugs, e.g. unused imports,
+      # undefined names, unused variables. --fix repairs the simple ones.
+      - id: ruff-check
+        name: ruff check (find likely bugs)
+        entry: uv run --no-sync ruff check --fix
+        language: system
+        types_or: [python, jupyter]
+
+      # Keeps uv.lock in sync with pyproject.toml: if you edited the
+      # dependencies but forgot `uv lock`, this updates the lockfile.
+      - id: uv-lock
+        name: uv lock (lockfile matches pyproject.toml)
+        entry: uv lock
+        language: system
+        files: ^(pyproject\.toml|uv\.lock)$
+        pass_filenames: false
+
+      # Regenerates ui/requirements.txt from uv.lock, so the web app on
+      # Streamlit Cloud installs exactly the locked versions.
+      #   --only-group ui    just the web app's packages
+      #   --no-hashes        plain "package==version" lines
+      #   --no-emit-project  don't list this project itself
+      #   --frozen           use uv.lock as-is (the hook above updated it)
+      - id: uv-export-ui
+        name: uv export (ui/requirements.txt matches uv.lock)
+        entry: uv export --frozen --only-group ui --no-hashes --no-emit-project -o ui/requirements.txt
+        language: system
+        files: ^(pyproject\.toml|uv\.lock)$
+        pass_filenames: false

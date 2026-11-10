@@ -1,0 +1,204 @@
+# =============================================================================
+# pyproject.toml - the project's single configuration file for Python tooling
+# =============================================================================
+# WHAT IT IS
+#   The modern Python standard (PEP 621) for describing a project: its name,
+#   version, Python version, the packages it needs, and the settings of the
+#   tools that work on it (uv, ruff, pytest, coverage).
+#
+# WHY ONE FILE
+#   It replaces requirements.txt, ruff.toml, pytest.ini and .coveragerc.
+#   One home for tool settings = nothing to keep in sync between files.
+#   (Project settings like the 40% data split live in src/config.py instead;
+#   see "one home per kind of setting" in the README.)
+#
+# HOW IT CONNECTS TO uv.lock
+#   This file says WHAT we need, loosely ("pandas 2.2.3 or newer").
+#   `uv lock` turns that into uv.lock: the EXACT version of every package,
+#   including the packages our packages depend on. uv.lock is committed to
+#   Git, so your laptop, CI and Docker all install identical versions.
+#   Analogy: this file is the shopping list; uv.lock is the receipt.
+#
+# EVERYDAY COMMANDS
+#   uv sync          make .venv match uv.lock exactly (installs all groups below)
+#   uv lock          re-resolve versions after you edit this file
+#   uv add <pkg>     add a dependency (updates this file AND uv.lock)
+#   uv run <cmd>     run a command inside the project's environment
+# =============================================================================
+
+[project]
+# The project's name (used by tools; this app is never published to PyPI).
+name = "diabetes-mlops"
+# The app's version, defined ONLY here. src/config.py reads it, the API's
+# /health endpoint reports it, and release tags (v1.0.0) match it.
+# Semantic versioning: MAJOR.MINOR.PATCH
+#   MAJOR = breaking change, MINOR = new feature, PATCH = bug fix.
+version = "1.0.0"
+description = "Diabetes risk predictor: an end-to-end MLOps and DevOps learning project"
+
+# Exactly Python 3.13 (any 3.13.x patch release). The same version is used
+# locally, in CI and in the Docker images (environment parity), so a model
+# trained on your laptop loads identically in production.
+# Changing it means updating .python-version and both Dockerfiles too.
+requires-python = "==3.13.*"
+
+# -----------------------------------------------------------------------------
+# Runtime dependencies: what the API needs to serve predictions.
+# Kept deliberately small, because the Docker image installs ONLY these:
+# fewer packages = smaller image, faster deploys, fewer security holes.
+# Version ranges like ">=2.2.3,<3" mean "2.2.3 or newer, but not 3.x", since a
+# new major version may contain breaking changes.
+# -----------------------------------------------------------------------------
+dependencies = [
+    # Pinned EXACTLY (==): a saved model must be loaded with the same
+    # scikit-learn version that trained it. The quality gate checks this, and
+    # Dependabot is told not to upgrade it (see .github/dependabot.yml).
+    "scikit-learn==1.6.1",
+    "pandas>=2.2.3,<3",           # data tables (2.2.3 = first with Python 3.13 support)
+    "numpy>=2.1,<3",              # numerical arrays (2.1 = first with Python 3.13 support)
+    "joblib>=1.4",                # saves/loads the trained model file
+    # The web API framework. Capped below 0.151 because newer FastAPI releases
+    # break Prefect's server (Prefect is in the "pipeline" group, but both share
+    # one environment, so they must agree on a FastAPI version). Remove the cap
+    # once Prefect supports newer FastAPI; Dependabot will propose it.
+    "fastapi>=0.115,<0.151",
+    "uvicorn[standard]>=0.30",    # the web server that runs FastAPI
+    "pydantic>=2.8,<3",           # validates incoming API requests
+]
+
+# -----------------------------------------------------------------------------
+# Dependency groups (PEP 735): extra packages for specific jobs, installed
+# locally by `uv sync` but NOT in the API Docker image.
+# CI installs only the groups each job needs (e.g. `--group dev`).
+# -----------------------------------------------------------------------------
+[dependency-groups]
+# Development: testing, code quality and the demo notebooks. CI installs this.
+dev = [
+    "pytest>=8",                  # test runner: finds and runs tests/test_*.py
+    "pytest-cov>=5",              # measures test coverage (see [tool.coverage] below)
+    "httpx>=0.27",                # needed by FastAPI's TestClient in the API tests
+    # Linter + formatter: catches bugs, keeps style consistent. Bounded to one
+    # minor version on purpose: ruff 0.16 enabled ~350 extra rules by default, so
+    # an unbounded range lets a new release change the rules overnight. Upgrades
+    # arrive as Dependabot pull requests, where CI shows their effect first.
+    "ruff>=0.16,<0.17",
+    "pre-commit>=4",              # runs checks automatically before every commit
+    "pyyaml>=6",                  # reads YAML files (the DevOps demo reads ci.yml)
+    "matplotlib>=3.9",            # src/evaluation.py draws learning curves
+    "requests>=2.32",             # the smoke test and demos call the API over HTTP
+    "ipykernel>=6.29",            # lets VS Code run the demo notebooks in this environment
+]
+# Training, tracking, orchestration and monitoring (the MLOps machinery).
+pipeline = [
+    "ucimlrepo>=0.0.7",           # downloads the dataset from the UCI repository
+    "mlflow>=3.1,<4",             # experiment tracking + model registry
+    "prefect>=3.4,<4",            # orchestration: runs and schedules the flows
+    "evidently>=0.7,<0.8",        # visual drift reports (HTML)
+    "matplotlib>=3.9",            # learning-curve plots
+    "requests>=2.32",             # simulate_traffic.py calls the API
+]
+# The Streamlit web app. Deployed separately on Streamlit Community Cloud,
+# which reads ui/requirements.txt. That file is EXPORTED from uv.lock by a
+# pre-commit hook, so the web app gets exactly the locked versions too.
+ui = [
+    "streamlit>=1.40",
+    "requests>=2.32",
+]
+
+# =============================================================================
+# uv: the package and environment manager
+# =============================================================================
+[tool.uv]
+# This is an application, not a library to publish, so uv installs only the
+# dependencies, not the project itself as a package.
+package = false
+# `uv sync` with no options installs everything, for local development.
+# CI and Docker pick the minimum they need with --no-default-groups.
+default-groups = ["dev", "pipeline", "ui"]
+# Everyone must use uv 0.13 or newer, so uv.lock is read and written the same
+# way everywhere. CI and the Dockerfiles pin the exact version (0.13.7).
+required-version = ">=0.13"
+
+# =============================================================================
+# ruff: linter (finds likely bugs) and formatter (consistent code layout)
+# =============================================================================
+# Runs on every commit via pre-commit, and in CI's "checks" job.
+[tool.ruff]
+# Longest allowed line, in characters. 120 suits modern wide screens;
+# the Python community's traditional default is 88.
+line-length = 120
+# The oldest Python the code must run on; lets ruff suggest modern syntax.
+target-version = "py313"
+# ruff also checks the demo notebooks (.ipynb) automatically.
+
+# =============================================================================
+# pytest: the test runner
+# =============================================================================
+[tool.pytest.ini_options]
+# Lets tests import `src`, `api`, `demo` and `scripts` from the project root.
+pythonpath = ["."]
+# Where pytest looks for test files (files named test_*.py).
+testpaths = ["tests"]
+
+# =============================================================================
+# Test coverage (pytest-cov, built on the "coverage" tool)
+# =============================================================================
+# WHAT IS TEST COVERAGE?
+#   While the tests run, coverage records which lines of our code were
+#   executed. The result is a percentage: "82% of the code ran during tests".
+#   Code that never runs in any test could be broken without anyone noticing.
+#   Analogy: a building inspector's checklist of which rooms they actually
+#   walked through. A room never visited might have a hidden problem.
+#
+# HOW TO RUN IT
+#   uv run pytest --cov                         table in the terminal (what CI runs)
+#   uv run pytest --cov --cov-report=html       also writes htmlcov/index.html:
+#                                               open it to see each file's code,
+#                                               with untested lines highlighted
+#   (A plain `uv run pytest` skips coverage, so running a single test in VS Code
+#    doesn't "fail" because one test alone covers little code.)
+#
+# THE KEY LIMITATION
+#   Coverage shows which code RAN during tests, not whether the tests CHECKED
+#   the right things. A test can run a line without verifying its result.
+#   So coverage is a guide for finding untested code, not a goal in itself.
+
+[tool.coverage.run]
+# source: which code is measured - our own code, not installed libraries.
+# The root scripts (pipeline.py, monitor.py, simulate_traffic.py) are
+# orchestration wrappers that need MLflow/Prefect and a live API; they're
+# exercised by running them, not by unit tests.
+source = ["src", "api", "scripts", "demo"]
+# omit: files measured by other means, each with its reason:
+#   src/registry.py - talks to MLflow, which CI deliberately doesn't install
+#                     (keeps CI fast); it's exercised every time the pipeline runs.
+omit = ["src/registry.py"]
+# branch = true: also check BOTH outcomes of every "if" (true and false),
+# not just that each line ran once. Stricter, and catches untested decisions.
+branch = true
+
+[tool.coverage.report]
+# fail_under: the minimum total percentage. Below it, the coverage run fails,
+# which fails CI's "tests" job and blocks merging into main.
+# Why 80 and not 100? Each extra percent costs more effort for less benefit,
+# and chasing 100% tends to produce meaningless tests written only to touch
+# lines. 80% is a common, healthy bar. Raise it over time; don't lower it
+# without a good reason.
+fail_under = 80
+# show_missing: list the exact line numbers no test ran (the "Missing" column),
+# so you know precisely where to add tests.
+show_missing = true
+# skip_covered: hide files that are 100% covered, keeping the report short.
+skip_covered = true
+# exclude_also: lines matching these patterns are left out of the measurement.
+# "pragma: no cover" marks code that needs live services or real data (the
+# running API, the deployed app, the downloaded dataset); each use in the code
+# says why. Such code is exercised by the demo rehearsal and CI's container
+# smoke test instead of unit tests.
+exclude_also = [
+    'if __name__ == "__main__":',
+]
+
+[tool.coverage.html]
+# Where `--cov-report=html` writes its browsable report (ignored by Git).
+directory = "htmlcov"

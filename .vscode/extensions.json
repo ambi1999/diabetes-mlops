@@ -1,0 +1,12 @@
+// VS Code shows a "Do you want to install the recommended extensions?" prompt
+// when someone opens this project, so everyone works with the same tools.
+// (VS Code allows comments in its .json settings files.)
+{
+  "recommendations": [
+    "ms-python.python",        // Python support: run, debug, select interpreter
+    "ms-toolsai.jupyter",      // runs the demo notebooks in demo/
+    "charliermarsh.ruff",      // shows ruff's lint warnings while you type
+    "tamasfe.even-better-toml", // syntax highlighting for pyproject.toml
+    "redhat.vscode-yaml"        // checks YAML files (CI workflows, render.yaml) as you type
+  ]
+}

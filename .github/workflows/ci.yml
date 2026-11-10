@@ -1,0 +1,313 @@
+# =============================================================================
+# Continuous Integration (CI) - .github/workflows/ci.yml
+# =============================================================================
+# WHAT IT IS
+#   A "workflow": instructions GitHub Actions follows automatically. Each time
+#   code is pushed or a pull request is opened, GitHub starts fresh, temporary
+#   computers ("runners"), downloads the code and runs the jobs below.
+#
+# WHY
+#   Catch problems BEFORE they reach users. Each job appears as a separate
+#   check on the pull request (✅ or ❌). Branch protection on main only allows
+#   merging when the required checks pass, and Render only deploys after they
+#   pass (render.yaml: autoDeployTrigger: checksPass).
+#
+# THE FIVE JOBS (they run in parallel, on separate runners)
+#   1. checks      formatting, lint, lockfile in sync   (same hooks as pre-commit)
+#   2. tests       unit tests + test coverage minimum
+#   3. model-gate  is the committed model good enough to serve users?
+#   4. security    known vulnerabilities in our dependencies   (warning only)
+#   5. containers  build the Docker images, start them, smoke-test them,
+#                  scan the API image for vulnerabilities      (scan: warning only)
+#
+# WHEN A JOB FAILS
+#   Click it on GitHub to see the log. Each step below says what a failure means.
+# =============================================================================
+
+name: CI
+
+# --- When the workflow runs ---------------------------------------------------
+on:
+  pull_request:          # every pull request (checks a change BEFORE merging)
+  push:
+    branches: [main]     # every merge into main (confirms main is still healthy)
+  workflow_dispatch:     # adds a "Run workflow" button on GitHub's Actions tab
+
+# --- Security: least privilege ------------------------------------------------
+# The workflow may only READ the repository. Even if a step were compromised,
+# it couldn't change code or settings.
+permissions:
+  contents: read
+
+# --- Don't waste runs ---------------------------------------------------------
+# If you push again while a run is still going on the same branch, cancel the
+# old run: only the newest code matters.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# --- CI settings: defined once here, used by the jobs below -------------------
+env:
+  # uv version: the same exact version as the Dockerfiles (environment parity)
+  UV_VERSION: "0.13.7"
+  # `uv run` normally re-syncs the environment first, including ALL dependency
+  # groups. Each job installs only what it needs, so tell uv not to re-sync.
+  UV_NO_SYNC: "1"
+  # Names given to the Docker images built in CI (local to the runner)
+  API_IMAGE: diabetes-api:ci
+  UI_IMAGE: diabetes-ui:ci
+  # Ports the containers listen on during the smoke test
+  API_PORT: "8000"
+  UI_PORT: "8501"
+  # Which vulnerability levels the security scans report
+  # (Trivy levels: UNKNOWN, LOW, MEDIUM, HIGH, CRITICAL)
+  SCAN_SEVERITY: "CRITICAL,HIGH"
+
+jobs:
+  # ===========================================================================
+  # 1. CHECKS: formatting, lint and lockfile, via the pre-commit hooks
+  # ===========================================================================
+  checks:
+    name: Checks (format, lint, lockfile)
+    runs-on: ubuntu-latest   # a fresh Linux machine provided by GitHub
+    steps:
+      # Download the repository's code onto the runner
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      # Install uv; uv reads .python-version and installs Python 3.13 itself.
+      # enable-cache: reuse downloaded packages from earlier runs (faster).
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      # Install exactly what uv.lock says, runtime + "dev" group only.
+      # --locked: FAIL if uv.lock is out of date with pyproject.toml.
+      #   Fix: run `uv lock` locally (or let the pre-commit hook do it), commit uv.lock.
+      - name: Install dependencies
+        run: uv sync --locked --no-default-groups --group dev
+
+      # Keep pre-commit's own downloads between runs (faster). The cache is
+      # reset whenever .pre-commit-config.yaml changes.
+      - name: Cache pre-commit environments
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      # Run every hook on every file: the SAME checks as on your machine.
+      # A failure means a hook found or fixed a problem (the diff is shown).
+      #   Fix: run `uv run pre-commit run --all-files` locally, commit the changes.
+      - name: Run pre-commit hooks on all files
+        run: uv run pre-commit run --all-files --show-diff-on-failure
+
+  # ===========================================================================
+  # 2. TESTS: unit tests and test coverage
+  # ===========================================================================
+  tests:
+    name: Tests and coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --locked --no-default-groups --group dev
+
+      # Run all tests, measuring coverage (settings in pyproject.toml).
+      # The table lists each file's coverage; "Missing" shows the line numbers
+      # no test ran. This step FAILS if:
+      #   - any test fails             Fix: read the failure, fix the code or the test
+      #   - total coverage < minimum   Fix: add tests for the "Missing" lines
+      #                                (don't lower fail_under without a reason)
+      - name: Run tests with coverage
+        run: uv run pytest --cov
+
+      # Also show the coverage table on the run's Summary page, as a readable
+      # table. `if: always()` = run this step even when the tests failed.
+      - name: Add coverage table to the run summary
+        if: always()
+        run: |
+          echo "## Test coverage" >> "$GITHUB_STEP_SUMMARY"
+          uv run coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY" || true
+
+  # ===========================================================================
+  # 3. MODEL GATE: is the committed model good enough to serve users?
+  # ===========================================================================
+  model-gate:
+    name: Model quality gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      # Only the runtime packages: exactly what the API container has.
+      - name: Install dependencies
+        run: uv sync --locked --no-default-groups
+
+      # The same checks the pipeline runs before promoting a model
+      # (src/quality_gate.py): model loads, library version matches, ROC-AUC
+      # above the minimum, beats guessing the average, valid probabilities.
+      # A failure means this model must not be deployed.
+      #   Fix: retrain with `uv run pipeline.py`, or revert the commit that changed models/.
+      - name: Run the quality gate on models/
+        run: uv run python -m scripts.check_model
+
+  # ===========================================================================
+  # 4. SECURITY: known vulnerabilities in dependencies (WARNING ONLY)
+  # ===========================================================================
+  # CONCEPT - vulnerability scanning: public databases list security flaws
+  # found in specific package versions. The scanner compares our locked
+  # versions (uv.lock) against them.
+  # Policy (a project decision): report, don't block. The job always finishes;
+  # findings go to the Summary page and a downloadable report, with a ⚠️
+  # warning. Fixes arrive as Dependabot pull requests.
+  security:
+    name: Security scan of dependencies (warning only)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      # Trivy (an open-source scanner) reads uv.lock and checks every package.
+      #   scan-type fs       scan files in the repository
+      #   scanners vuln      look for known vulnerabilities (not other issues)
+      #   ignore-unfixed     skip issues with no fixed version yet (nothing to do)
+      #   exit-code 1        signal "found something" ...
+      #   continue-on-error  ... without failing the job (our warning-only policy)
+      - name: Scan locked dependencies
+        id: scan
+        uses: aquasecurity/trivy-action@0.28.0
+        continue-on-error: true
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: ${{ env.SCAN_SEVERITY }}
+          ignore-unfixed: true
+          format: table
+          output: dependency-scan.txt
+          exit-code: "1"
+
+      # Show the findings on the run's Summary page
+      - name: Add findings to the run summary
+        if: always()
+        run: |
+          echo "## Dependency vulnerability scan (${SCAN_SEVERITY})" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat dependency-scan.txt >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "No report produced." >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      # A visible ⚠️ annotation on the run when something was found
+      - name: Warn if vulnerabilities were found
+        if: steps.scan.outcome == 'failure'
+        run: echo "::warning title=Vulnerable dependencies::The scan found ${SCAN_SEVERITY} issues with available fixes. See the Summary page and the dependency-scan report."
+
+      # Keep the full report as a downloadable file (bottom of the run page)
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-scan
+          path: dependency-scan.txt
+          if-no-files-found: ignore
+
+  # ===========================================================================
+  # 5. CONTAINERS: build the images, start them, smoke-test them, scan them
+  # ===========================================================================
+  containers:
+    name: Containers (build, smoke test, image scan)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      # Build both images exactly as Render and Docker Compose do.
+      # A failure means a Dockerfile step broke.
+      #   Fix: run `docker build -t test .` locally to see the same error.
+      - name: Build the API image
+        run: docker build -t "$API_IMAGE" .
+
+      - name: Build the web app image
+        run: docker build -t "$UI_IMAGE" ui
+
+      # Start both containers in the background (-d = detached).
+      # -p HOST:CONTAINER makes the container's port reachable on the runner.
+      - name: Start the containers
+        run: |
+          docker run -d --name api -p "${API_PORT}:8000" "$API_IMAGE"
+          docker run -d --name ui -p "${UI_PORT}:8501" "$UI_IMAGE"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --locked --no-default-groups --group dev
+
+      # CONCEPT - smoke test: talk to the RUNNING containers like a real user:
+      # health check with versions, a valid prediction, and an impossible input
+      # that must be refused. Unit tests check the code; this checks the
+      # packaged, running product.
+      # A failure means the image builds but doesn't work.
+      #   Fix: read the container logs printed by the next step.
+      - name: Smoke-test the running containers
+        run: uv run python -m scripts.smoke_test --api-url "http://localhost:${API_PORT}" --ui-url "http://localhost:${UI_PORT}"
+
+      # Only runs if something above failed: print the containers' own logs
+      - name: Show container logs (on failure)
+        if: failure()
+        run: |
+          docker logs api || true
+          docker logs ui || true
+
+      # Scan the API image (operating system packages + Python packages)
+      # for known vulnerabilities. Warning only, same policy as the security job.
+      - name: Scan the API image
+        id: imagescan
+        uses: aquasecurity/trivy-action@0.28.0
+        continue-on-error: true
+        with:
+          scan-type: image
+          image-ref: ${{ env.API_IMAGE }}
+          severity: ${{ env.SCAN_SEVERITY }}
+          ignore-unfixed: true
+          format: table
+          output: image-scan.txt
+          exit-code: "1"
+
+      - name: Add image findings to the run summary
+        if: always()
+        run: |
+          echo "## API image vulnerability scan (${SCAN_SEVERITY})" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat image-scan.txt >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "No report produced." >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Warn if the image has vulnerabilities
+        if: steps.imagescan.outcome == 'failure'
+        run: echo "::warning title=Vulnerable image::The API image scan found ${SCAN_SEVERITY} issues with available fixes. See the Summary page."
+
+      - name: Upload the image report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-scan
+          path: image-scan.txt
+          if-no-files-found: ignore
