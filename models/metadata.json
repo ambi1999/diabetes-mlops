@@ -1,0 +1,17 @@
+{
+  "model_version": "1",
+  "app_version": "1.0.0",
+  "model_type": "gradient_boosting",
+  "mlflow_run_id": "9e197161b96c442ca4175790fc0e4b7a",
+  "trained_at": "2026-11-10T01:58:12.959008+00:00",
+  "training_rows": 126840,
+  "reason": "manual",
+  "sklearn_version": "1.6.1",
+  "metrics": {
+    "roc_auc": 0.8325369360617122,
+    "brier": 0.09618064270480949,
+    "no_skill_brier": 0.11993070174797402,
+    "recall_high_risk": 0.4033946251768034,
+    "precision_high_risk": 0.4802963960929606
+  }
+}

@@ -27,6 +27,7 @@ from src.config import (
     REFERENCE_PATH,
     REFERENCE_SAMPLE_SIZE,
     REGISTERED_MODEL_NAME,
+    SKOPS_TRUSTED_TYPES,
 )
 from src.evaluation import evaluate_model
 from src.schema import FEATURES
@@ -63,6 +64,8 @@ def log_and_register_model(model, train: pd.DataFrame) -> str:
         name="model",
         registered_model_name=REGISTERED_MODEL_NAME,
         input_example=train[FEATURES].head(3),  # documents the expected input format
+        # MLflow test-loads the saved model; these are the types we vouch for (see config)
+        skops_trusted_types=SKOPS_TRUSTED_TYPES,
     )
     return str(info.registered_model_version)
 

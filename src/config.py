@@ -185,6 +185,16 @@ EXPERIMENT_NAME = _by_profile(full="diabetes-risk", quick="diabetes-risk-quick")
 REGISTERED_MODEL_NAME = _by_profile(full="diabetes-risk", quick="diabetes-risk-quick")
 PRODUCTION_ALIAS = "production"
 REFERENCE_SAMPLE_SIZE = 10_000  # rows saved as the "normal" baseline for drift checks
+# CONCEPT - safe model loading: MLflow saves scikit-learn models in the "skops"
+# format, which refuses to load object types it can't verify as safe (a
+# tampered model file could otherwise crash the program or worse). We list
+# here, by exact name, the extra types our candidate models need. This is safe
+# ONLY because our pipeline creates these models itself; never add types just
+# to make a model from an unknown source load.
+SKOPS_TRUSTED_TYPES = [
+    # Used by gradient_boosting (HistGradientBoostingClassifier) to store its trees
+    "sklearn.ensemble._hist_gradient_boosting.predictor.TreePredictor",
+]
 
 # =============================================================================
 # Retraining
