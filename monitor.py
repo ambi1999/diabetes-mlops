@@ -42,7 +42,7 @@ def load_current_inputs(window: int) -> pd.DataFrame:
 @task(cache_policy=NO_CACHE)
 def save_reports(reference: pd.DataFrame, current: pd.DataFrame, result: dict) -> None:
     """JSON report (for software and history) + optional HTML report (for people)."""
-    REPORTS_DIR.mkdir(exist_ok=True)
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     (REPORTS_DIR / f"drift_{stamp}.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
 

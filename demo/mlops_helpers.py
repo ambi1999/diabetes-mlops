@@ -158,7 +158,7 @@ def compare_models() -> dict:  # pragma: no cover
     train = pd.read_csv(TRAIN_DATA)
     results = cross_validate_candidates(train, sample_size=DEMO_CV_SAMPLE_SIZE, folds=DEMO_CV_FOLDS)
     best = select_best_model(results)
-    REPORTS_DIR.mkdir(exist_ok=True)
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     image = plot_learning_curve(
         best, train, REPORTS_DIR / "demo_learning_curve.png", sample_size=DEMO_CV_SAMPLE_SIZE, folds=DEMO_CV_FOLDS
     )

@@ -90,7 +90,7 @@ def promote_model(
     MlflowClient(MLFLOW_TRACKING_URI).set_registered_model_alias(REGISTERED_MODEL_NAME, PRODUCTION_ALIAS, version)
 
     # 2. Export the model for the API
-    MODELS_DIR.mkdir(exist_ok=True)
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
     joblib.dump(model, MODEL_PATH)
 
     # 3. Save a sample of the training data: monitoring compares live inputs
