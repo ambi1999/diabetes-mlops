@@ -61,7 +61,7 @@ dependencies = [
     # break Prefect's server (Prefect is in the "pipeline" group, but both share
     # one environment, so they must agree on a FastAPI version). Remove the cap
     # once Prefect supports newer FastAPI; Dependabot will propose it.
-    "fastapi>=0.115,<0.151",
+    "fastapi>=0.115,<0.163",
     "uvicorn[standard]>=0.30",    # the web server that runs FastAPI
     "pydantic>=2.8,<3",           # validates incoming API requests
 ]
@@ -81,7 +81,7 @@ dev = [
     # minor version on purpose: ruff 0.16 enabled ~350 extra rules by default, so
     # an unbounded range lets a new release change the rules overnight. Upgrades
     # arrive as Dependabot pull requests, where CI shows their effect first.
-    "ruff>=0.16,<0.17",
+    "ruff>=0.16,<0.18",
     "pre-commit>=4",              # runs checks automatically before every commit
     "pyyaml>=6",                  # reads YAML files (the DevOps demo reads ci.yml)
     "matplotlib>=3.9",            # src/evaluation.py draws learning curves
