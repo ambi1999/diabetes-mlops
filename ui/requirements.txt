@@ -57,7 +57,7 @@ pyarrow==26.0.1
     # via streamlit
 pydeck==0.9.3
     # via streamlit
-python-dateutil==2.9.0.post0
+python-dateutil==4.0.0
     # via pandas
 python-multipart==0.0.33
     # via streamlit
