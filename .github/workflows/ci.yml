@@ -73,12 +73,12 @@ jobs:
     steps:
       # Download the repository's code onto the runner
       - name: Check out the code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Install uv; uv reads .python-version and installs Python 3.13 itself.
       # enable-cache: reuse downloaded packages from earlier runs (faster).
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
@@ -92,7 +92,7 @@ jobs:
       # Keep pre-commit's own downloads between runs (faster). The cache is
       # reset whenever .pre-commit-config.yaml changes.
       - name: Cache pre-commit environments
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/pre-commit
           key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
@@ -111,10 +111,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out the code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
@@ -147,10 +147,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out the code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
@@ -181,7 +181,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out the code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Trivy (an open-source scanner) reads uv.lock and checks every package.
       #   scan-type fs       scan files in the repository
@@ -191,7 +191,7 @@ jobs:
       #   continue-on-error  ... without failing the job (our warning-only policy)
       - name: Scan locked dependencies
         id: scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         continue-on-error: true
         with:
           scan-type: fs
@@ -220,7 +220,7 @@ jobs:
       # Keep the full report as a downloadable file (bottom of the run page)
       - name: Upload the report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dependency-scan
           path: dependency-scan.txt
@@ -234,7 +234,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out the code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Build both images exactly as Render and Docker Compose do.
       # A failure means a Dockerfile step broke.
@@ -253,7 +253,7 @@ jobs:
           docker run -d --name ui -p "${UI_PORT}:8501" "$UI_IMAGE"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
@@ -281,7 +281,7 @@ jobs:
       # for known vulnerabilities. Warning only, same policy as the security job.
       - name: Scan the API image
         id: imagescan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         continue-on-error: true
         with:
           scan-type: image
@@ -306,7 +306,7 @@ jobs:
 
       - name: Upload the image report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: image-scan
           path: image-scan.txt
