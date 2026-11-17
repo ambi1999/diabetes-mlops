@@ -13,7 +13,7 @@
 
 # Start from an official, minimal Python image. The version matches
 # .python-version and requires-python in pyproject.toml (environment parity).
-FROM python:3.13-slim
+FROM python:3.15-slim
 
 # Copy the uv executable from its official image. Pinned to an exact version
 # (not "latest") so builds are reproducible; keep it in sync with ci.yml.
