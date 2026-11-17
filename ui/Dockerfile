@@ -6,7 +6,7 @@
 # and updated independently.
 # =============================================================================
 
-FROM python:3.13-slim
+FROM python:3.15-slim
 
 # Same pinned uv version as the API image and CI
 COPY --from=ghcr.io/astral-sh/uv:0.13.7 /uv /bin/
